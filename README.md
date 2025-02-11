@@ -1,0 +1,2 @@
+# ML_Pandas_AI_LearningLab_2025
+Репозиторий для хакатона AI_LearningLab_2025
