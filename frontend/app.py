@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-from utilities import sentiment_analysis, data_preprocessing
+from utilities import sentiment_analysis, data_preprocessing, training
 
 st.set_page_config(
     page_title="Анализ Тональности Текста",
@@ -61,7 +61,7 @@ st.markdown("""
 """,  unsafe_allow_html=True)
 
 # URL бэкенда через ngrok (или локальный URL для тестов)
-BACKEND_URL = os.environ.get("BACKEND_URL") # URL по умолчанию и из переменной окружения
+BACKEND_URL = os.environ.get("BACKEND_URL", "https://012a-193-239-160-82.ngrok-free.app") # URL по умолчанию и из переменной окружения
 
 st.title("Анализ Тональности Текста")
 st.write(
@@ -70,7 +70,7 @@ st.write(
 st.sidebar.header("Режим работы")
 app_mode = st.sidebar.radio(
     "Выберите режим:",
-    ["Анализ тональности текста", "Подготовка CSV данных"]
+    ["Анализ тональности текста", "Подготовка CSV данных", "Обучение"]
 )
 
 if app_mode == "Подготовка CSV данных":
@@ -78,3 +78,6 @@ if app_mode == "Подготовка CSV данных":
 
 elif app_mode == "Анализ тональности текста":
     sentiment_analysis.sentiment_analysis_ui(BACKEND_URL) # Вызываем UI функцию для sentiment analysis
+
+elif app_mode == "Обучение":
+    training.training(BACKEND_URL)
