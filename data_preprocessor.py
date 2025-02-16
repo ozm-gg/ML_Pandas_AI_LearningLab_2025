@@ -3,6 +3,7 @@ import pandas as pd
 from pymorphy3 import MorphAnalyzer
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
+from natasha import NamesExtractor, MorphVocab
 
 class DataPreprocessor:
     def __init__(self, text_column = 'text'):
@@ -35,8 +36,28 @@ class DataPreprocessor:
             parsed = self.morph.parse(word)[0]
             lemmas.append(parsed.normal_form)
         return ' '.join(lemmas)
+    
+    def remove_names_natasha(self, text):
+        extractor = NamesExtractor(MorphVocab())
+        matches = extractor(text)
+        spans = []
+        
+        for match in matches:
+            fact = match.fact
+            if fact.first or fact.middle:  
+                spans.append((match.start, match.stop))
+        
+        cleaned_text = []
+        last_end = 0
+        for start, end in sorted(spans):
+            cleaned_text.append(text[last_end:start])
+            last_end = end
+        cleaned_text.append(text[last_end:])
+        
+        return ''.join(cleaned_text)
 
     def preprocess_dataset(self, df):
+        df[self.text_column] = df[self.text_column].apply(self.remove_names_natasha)
         df[self.text_column] = df[self.text_column].str.replace(r'\b\d+\b', '')
         df[self.text_column] = df[self.text_column].apply(self.clean_text)
         df[self.text_column] = df[self.text_column].apply(self.remove_stopwords)
@@ -45,6 +66,7 @@ class DataPreprocessor:
         return df
     
     def preprocess_text(self, text):
+        text = self.remove_names_natasha(text)
         text = re.sub(r'\b\d+\b', '', text)
         text = self.clean_text(text)
         text = self.remove_stopwords(text)
