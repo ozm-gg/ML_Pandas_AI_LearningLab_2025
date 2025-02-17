@@ -1,9 +1,19 @@
 import streamlit as st
 import requests
+import pandas as pd
+import io
 
 def data_preprocessing_ui(backend_url):
-    st.sidebar.header("Настройки очистки CSV")
+    st.sidebar.header("Настройки подготовки CSV")
     uploaded_file = st.sidebar.file_uploader("Загрузите CSV файл", type="csv")
+
+    if uploaded_file is not None:
+        file_contents = uploaded_file.getvalue().decode("utf-8")
+        df = pd.read_csv(io.StringIO(file_contents))
+        text_column = st.sidebar.selectbox("Выберите столбец для очистки", options=df.columns)
+    else:
+        text_column = None
+
     preprocess_button = st.sidebar.button("Очистить CSV")
 
     cleaned_csv_data = None # Локальная переменная для хранения данных
@@ -11,9 +21,10 @@ def data_preprocessing_ui(backend_url):
     if preprocess_button:
         if uploaded_file is not None:
             files = {"file": uploaded_file}
+            data = {"text_column": text_column}
             with st.spinner("Очищаем данные..."):
                 try:
-                    response = requests.post(f"{backend_url}/preprocess_csv/", files=files)
+                    response = requests.post(f"{backend_url}/preprocess_csv/", files=files, data=data)
                     response.raise_for_status()
                     cleaned_csv_data = response.content
                     st.success("CSV файл успешно очищен!")
