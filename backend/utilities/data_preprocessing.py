@@ -2,7 +2,7 @@ import re
 from pymorphy3 import MorphAnalyzer
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
-
+from natasha import NamesExtractor, MorphVocab
 
 class DataPreprocessor:
     def __init__(self, text_column='MessageText'):
@@ -48,7 +48,38 @@ class DataPreprocessor:
             print(f"Error in lemmatize_text with text: {text}\n{e}")
             raise
 
+    def remove_names_natasha(self, text):
+        try:
+            extractor = NamesExtractor(MorphVocab())
+            matches = extractor(text)
+            spans = []
+            
+            for match in matches:
+                fact = match.fact
+                if fact.first or fact.middle:  
+                    spans.append((match.start, match.stop))
+            
+            cleaned_text = []
+            last_end = 0
+            for start, end in sorted(spans):
+                cleaned_text.append(text[last_end:start])
+                last_end = end
+            cleaned_text.append(text[last_end:])
+            
+            return ''.join(cleaned_text)
+        except Exception as e:
+            print(f"Error in remove_names_natasha with text: {text}\n{e}")
+            raise
+
     def preprocess_dataset(self, df):
+        # Функция-обёртка для отлавливания ошибок на каждом шаге
+        def safe_apply(func, text):
+            try:
+                return func(text)
+            except Exception as e:
+                print(f"Error in function {func.__name__} for text: {text}\n{e}")
+                raise
+
         # Проверка наличия нужного столбца
         if self.text_column not in df.columns:
             raise ValueError(
@@ -63,20 +94,19 @@ class DataPreprocessor:
             print("Error converting or filtering text column:", e)
             raise
 
+        # Удаление имен
+        try:
+            df[self.text_column] = df[self.text_column].apply(lambda x: safe_apply(self.remove_names_natasha, x))
+        except Exception as e:
+            print("Error during remove_stopwords stage:", e)
+            raise
+
         # Замена цифр на пустую строку
         try:
             df[self.text_column] = df[self.text_column].str.replace(r'\b\d+\b', '', regex=True)
         except Exception as e:
             print("Error in regex replacement:", e)
             raise
-
-        # Функция-обёртка для отлавливания ошибок на каждом шаге
-        def safe_apply(func, text):
-            try:
-                return func(text)
-            except Exception as e:
-                print(f"Error in function {func.__name__} for text: {text}\n{e}")
-                raise
 
         # Применяем по очереди функции очистки, удаления стоп-слов и лемматизации
         try:

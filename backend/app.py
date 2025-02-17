@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request,  UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request,  UploadFile, File, BackgroundTasks, Form
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from transformers import pipeline, TrainingArguments, Trainer
@@ -8,6 +8,7 @@ import pandas as pd
 import io
 
 from utilities.data_preprocessing import DataPreprocessor
+from utilities.HTML_parser import TelegramChatParser
 
 app = FastAPI()
 
@@ -38,13 +39,13 @@ async def analyze_sentiment(request: Request, text_request: TextRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/preprocess_csv/")
-async def preprocess_csv(file: UploadFile = File(...)):
+async def preprocess_csv(file: UploadFile = File(...), text_column: str = Form(...)):
     try:
         contents = await file.read()
-        df = pd.read_csv(io.StringIO(contents.decode('utf-8'))) # Читаем CSV из UploadFile
+        df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
 
-        data_preprocessor = DataPreprocessor() # Создаем экземпляр DataPreprocessor
-        cleaned_df = data_preprocessor.preprocess_dataset(df.copy()) # Используем preprocess_dataset для очистки
+        data_preprocessor = DataPreprocessor(text_column=text_column) 
+        cleaned_df = data_preprocessor.preprocess_dataset(df.copy())
 
         # Конвертируем DataFrame обратно в CSV строку
         output_stream = io.StringIO()
@@ -123,9 +124,53 @@ async def training(background_tasks: BackgroundTasks, file: UploadFile = File(..
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/chat_analysis/")
+async def chat_analysis(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+        result = contents.decode("utf-8")
+        html_content = str(result)
 
+        parser = TelegramChatParser(html_content, is_file=False)
+        df = parser.to_dataframe()
 
+        data_preprocessor = DataPreprocessor(text_column="Message")
+        cleaned_df = data_preprocessor.preprocess_dataset(df.copy())
 
+        with model_lock:
+            predictions = sentiment_pipeline(list(cleaned_df["Message"]))
+
+        df["label"] = [pred.get("label") for pred in predictions]
+        df["score"] = [pred.get("score") for pred in predictions]
+
+        return df.to_dict(orient="records")
+
+    except Exception as e:
+        print("Ошибка:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/csv_analysis/")
+async def csv_analysis(file: UploadFile = File(...), text_column: str = Form(...)):
+    try:
+        contents = await file.read()
+        df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
+
+        data_preprocessor = DataPreprocessor(text_column=text_column) 
+        cleaned_df = data_preprocessor.preprocess_dataset(df.copy())
+
+        with model_lock:
+            predictions = sentiment_pipeline(list(cleaned_df[text_column]))
+
+        df["label"] = [pred.get("label") for pred in predictions]
+        df["score"] = [pred.get("score") for pred in predictions]
+        df["clean_message"] = cleaned_df[text_column]
+
+        return df.to_dict(orient="records")
+
+    except Exception as e:
+        print("Ошибка:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)

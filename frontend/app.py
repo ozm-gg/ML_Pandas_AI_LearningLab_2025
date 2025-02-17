@@ -1,10 +1,10 @@
 import streamlit as st
 import os
-from utilities import sentiment_analysis, data_preprocessing, training
+from utilities import sentiment_analysis, data_preprocessing, training, chat_analysis, csv_analysis
 
 st.set_page_config(
-    page_title="Анализ Тональности Текста",
-    page_icon=":last_quarter_moon:",
+    page_title="SentimentPanda - Анализ Тональности Текста",
+    page_icon="SentimentPanda.png",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -61,7 +61,7 @@ st.markdown("""
 """,  unsafe_allow_html=True)
 
 # URL бэкенда через ngrok (или локальный URL для тестов)
-BACKEND_URL = os.environ.get("BACKEND_URL", "https://012a-193-239-160-82.ngrok-free.app") # URL по умолчанию и из переменной окружения
+BACKEND_URL = os.environ.get("BACKEND_URL", 'https://045a-193-239-160-82.ngrok-free.app') # URL по умолчанию и из переменной окружения
 
 st.title("Анализ Тональности Текста")
 st.write(
@@ -70,7 +70,7 @@ st.write(
 st.sidebar.header("Режим работы")
 app_mode = st.sidebar.radio(
     "Выберите режим:",
-    ["Анализ тональности текста", "Подготовка CSV данных", "Обучение"]
+    ["Анализ тональности текста", "Подготовка CSV данных", "Анализ CSV данных", "Обучение", "Анализ чатов"]
 )
 
 if app_mode == "Подготовка CSV данных":
@@ -81,3 +81,9 @@ elif app_mode == "Анализ тональности текста":
 
 elif app_mode == "Обучение":
     training.training(BACKEND_URL)
+
+elif app_mode == "Анализ чатов":
+    chat_analysis.chat_analysis(BACKEND_URL)
+
+elif app_mode == "Анализ CSV данных":
+    csv_analysis.csv_analysis(BACKEND_URL)
