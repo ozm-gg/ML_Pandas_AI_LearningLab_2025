@@ -20,4 +20,3 @@ def training(backend_url):
                     cleaned_csv_data = None
         else:
             st.error("Пожалуйста, загрузите CSV файл.")
-            
