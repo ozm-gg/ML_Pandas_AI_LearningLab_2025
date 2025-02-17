@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 def csv_analysis(backend_url):
     st.sidebar.header("Настройки анализа CSV данных")
     uploaded_file = st.sidebar.file_uploader("Загрузите CSV файл", type="csv")
+    saved = False
     
     if uploaded_file is not None:
         file_contents = uploaded_file.getvalue().decode("utf-8")
@@ -46,13 +47,14 @@ def csv_analysis(backend_url):
                     columns_to_display = [text_column, "label", "score"]
                     st.subheader("Полученный DataFrame")
                     st.dataframe(df_result[columns_to_display].tail())
+
+                    df_filtered = df_result.drop(columns=["clean_message"], errors="ignore")
+                    saved = True
                     
-                    # Гистограмма распределения по классам
                     st.subheader("Распределение предсказанных меток")
                     fig1 = px.histogram(df_result, x="label", title="Распределение меток")
                     st.plotly_chart(fig1)
 
-                    # Облако слов для каждого класса (вывод в 3 колонки)
                     st.subheader("Облако слов для каждого класса")
                     text_source = "clean_message" if "clean_message" in df_result.columns else text_column
 
@@ -68,7 +70,7 @@ def csv_analysis(backend_url):
                                     width=300, 
                                     height=200, 
                                     background_color='white', 
-                                    colormap='Greens',       # более однотонная раскраска
+                                    colormap='Greens',
                                     max_font_size=50, 
                                     random_state=42
                                 ).generate(text)
@@ -81,6 +83,16 @@ def csv_analysis(backend_url):
                                 st.write("Нет текста для построения облака слов.")
 
                 except requests.exceptions.RequestException as e:
+                    saved = False
                     st.error(f"Ошибка при отправке файла: {e}")
         else:
             st.error("Пожалуйста, загрузите CSV файл и выберите столбец.")
+
+    if saved:
+        st.sidebar.header("Скачать размеченный CSV")
+        st.sidebar.download_button(
+            label="Скачать размеченный CSV",
+            data=df_filtered.to_csv(index=False).encode("utf-8"),
+            file_name="analysis_data.csv",
+            mime="text/csv"
+        )

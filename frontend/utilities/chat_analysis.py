@@ -33,7 +33,8 @@ def chat_analysis(backend_url):
                     )
 
                     st.subheader("Полученный DataFrame")
-                    st.dataframe(df.tail())
+                    df_filtered = df.drop(columns=["datetime"], errors="ignore")
+                    st.dataframe(df_filtered.tail())
 
                     COLOR_SCHEME = {
                         "Негативный": "#EF553B",
@@ -142,4 +143,3 @@ def chat_analysis(backend_url):
                     st.error(f"Ошибка при отправке файла: {e}")
         else:
             st.error("Пожалуйста, загрузите HTML файл.")
-            

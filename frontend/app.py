@@ -3,8 +3,8 @@ import os
 from utilities import sentiment_analysis, data_preprocessing, training, chat_analysis, csv_analysis
 
 st.set_page_config(
-    page_title="Анализ Тональности Текста",
-    page_icon=":last_quarter_moon:",
+    page_title="SentimentPanda - Анализ Тональности Текста",
+    page_icon="SentimentPanda.png",
     layout="wide",
     initial_sidebar_state="expanded"
 )

@@ -35,7 +35,6 @@ def data_preprocessing_ui(backend_url):
             st.error("Пожалуйста, загрузите CSV файл.")
 
     if cleaned_csv_data:
-        st.sidebar.markdown("---")
         st.sidebar.header("Скачать очищенный CSV")
         st.sidebar.download_button(
             label="Скачать очищенный CSV",
