@@ -2,11 +2,72 @@ import streamlit as st
 import requests
 import plotly.express as px
 import pandas as pd
+from fpdf import FPDF
+from datetime import datetime
+import tempfile
+
+def generate_pdf_report(df, fig1, fig_top, fig_top_neg, fig_hour):
+    pdf = FPDF()
+    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+    pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
+
+    pdf.add_page()
+    try:
+        pdf.image("SentimentPanda.png", x=10, y=8, w=30)
+    except Exception as e:
+        st.error(f"Ошибка при загрузке логотипа: {e}")
+    pdf.set_font("DejaVu", "B", 32)
+    pdf.cell(0, 10, "SentimentPanda", ln=True, align="C")
+    pdf.set_font("DejaVu", "B", 16)
+    pdf.cell(0, 10, "Анализ Тональности Текста", ln=True, align="C")
+    pdf.set_font("DejaVu", "", 12)
+    pdf.cell(0, 10, f"Дата анализа: {datetime.now().strftime('%d.%m.%Y')}", ln=True, align="C")
+    pdf.ln(20)
+    
+    def add_fig_page(fig, title):
+        try:
+            pdf.add_page()
+            pdf.set_font("DejaVu", "B", 14)
+            pdf.cell(0, 10, title, ln=True, align="C")
+            pdf.ln(5)
+            
+            if not fig or not hasattr(fig, 'write_image'):
+                raise ValueError("Invalid figure object")
+                
+            img_bytes = fig.to_image(format="png", scale=1, width=1000)
+
+            temp_dir = "/tempfile"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png", dir=temp_dir) as tmpfile:
+                tmpfile.write(img_bytes)
+                tmpfile.flush()
+                image_path = tmpfile.name
+    
+            pdf.image(image_path, x=15, y=30, w=pdf.w - 30)
+
+                
+        except Exception as e:
+            pdf.set_font("DejaVu", "", 10)
+            pdf.multi_cell(0, 10, f"Ошибка при добавлении графика {title}: {str(e)}")
+            st.error(f"PDF Error: {str(e)}")
+    
+    # if fig1 is not None:
+    #     add_fig_page(fig1, "Распределение предсказанных меток")
+    # if fig_top is not None:
+    #     add_fig_page(fig_top, "Топ-3 позитивных участников")
+    # if fig_top_neg is not None:
+    #     add_fig_page(fig_top_neg, "Топ-3 негативных участников")
+    # if fig_hour is not None:
+    #     add_fig_page(fig_hour, "Активность и настроения по часам")
+    
+    pdf_str = pdf.output(dest="S")
+    pdf_bytes = pdf_str.encode("latin-1", errors="replace")
+    return pdf_bytes
 
 def chat_analysis(backend_url):
     st.sidebar.header("Настройки анализа чатов")
     uploaded_file = st.sidebar.file_uploader("Загрузите HTML файл", type="html")
     analyze_button = st.sidebar.button("Анализировать чат")
+    saved = False
 
     if analyze_button:
         if uploaded_file is not None:
@@ -35,6 +96,7 @@ def chat_analysis(backend_url):
                     st.subheader("Полученный DataFrame")
                     df_filtered = df.drop(columns=["datetime"], errors="ignore")
                     st.dataframe(df_filtered.tail())
+                    saved = True
 
                     COLOR_SCHEME = {
                         "Негативный": "#EF553B",
@@ -42,7 +104,7 @@ def chat_analysis(backend_url):
                         "Позитивный": "#00CC96"
                     }
 
-                    # 1. Гистограмма распределения по классам
+                    # Гистограмма распределения по классам
                     st.subheader("Распределение предсказанных меток")
                     fig1 = px.histogram(df, x="label", title="Распределение меток")
                     st.plotly_chart(fig1)
@@ -92,32 +154,33 @@ def chat_analysis(backend_url):
                         fig_top_neg.update_layout(showlegend=False)
                         st.plotly_chart(fig_top_neg, use_container_width=True)
 
-                    # Учет активности и настроения по времени
+                    # График распределения активности и настроений по времени
                     st.subheader("Распределение активности и настроений")
-                    fig = px.histogram(df, 
-                                    x='datetime', 
-                                    nbins=50,
-                                    color='label',
-                                    color_discrete_map=COLOR_SCHEME,
-                                    labels={'datetime': 'Дата и время'},
-                                    hover_data=['Message'],
-                                    title='История сообщений с настроениями')
-                    fig.update_layout(barmode='stack', xaxis_title=None)
-                    st.plotly_chart(fig)
+                    fig_time = px.histogram(df, 
+                                            x='datetime', 
+                                            nbins=50,
+                                            color='label',
+                                            color_discrete_map=COLOR_SCHEME,
+                                            labels={'datetime': 'Дата и время'},
+                                            hover_data=['Message'],
+                                            title='История сообщений с настроями')
+                    fig_time.update_layout(barmode='stack', xaxis_title=None)
+                    st.plotly_chart(fig_time)
 
+                    # График активности и настроений по часам
                     df['hour'] = df['datetime'].dt.hour
                     hourly_stats = df.groupby('hour')['sentiment_score'].agg(['mean', 'count']).reset_index()
 
-                    fig = px.bar(hourly_stats, 
-                                x='hour', 
-                                y='count',
-                                color='mean',
-                                color_continuous_scale='RdYlGn',
-                                labels={'count': 'Кол-во сообщений', 'mean': 'Средний настрой'},
-                                title='Активность и настроения по часам суток',
-                                height=400)
-                    fig.update_layout(coloraxis_colorbar=dict(title="Средний балл"))
-                    st.plotly_chart(fig)
+                    fig_hour = px.bar(hourly_stats, 
+                                      x='hour', 
+                                      y='count',
+                                      color='mean',
+                                      color_continuous_scale='RdYlGn',
+                                      labels={'count': 'Кол-во сообщений', 'mean': 'Средний настрой'},
+                                      title='Активность и настроения по часам суток',
+                                      height=400)
+                    fig_hour.update_layout(coloraxis_colorbar=dict(title="Средний балл"))
+                    st.plotly_chart(fig_hour)
 
                     # Тепловая карта
                     st.subheader("Тепловая карта настроений")
@@ -140,6 +203,20 @@ def chat_analysis(backend_url):
                         st.error(f"Ошибка при построении тепловой карты: {str(e)}")
                     
                 except requests.exceptions.RequestException as e:
+                    saved = False
                     st.error(f"Ошибка при отправке файла: {e}")
         else:
             st.error("Пожалуйста, загрузите HTML файл.")
+
+    if saved:
+        st.sidebar.header("Скачать PDF отчет")
+        try:
+            pdf_bytes = generate_pdf_report(df, fig1, fig_top, fig_top_neg, fig_hour)
+            st.sidebar.download_button(
+                label="Скачать PDF отчет",
+                data=pdf_bytes,
+                file_name="report.pdf",
+                mime="application/pdf"
+            )
+        except Exception as e:
+            st.error(f"Ошибка при генерации PDF: {e}")
