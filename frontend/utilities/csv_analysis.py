@@ -6,11 +6,12 @@ import plotly.express as px
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 
+
 def csv_analysis(backend_url):
     st.sidebar.header("Настройки анализа CSV данных")
     uploaded_file = st.sidebar.file_uploader("Загрузите CSV файл", type="csv")
     saved = False
-    
+
     if uploaded_file is not None:
         file_contents = uploaded_file.getvalue().decode("utf-8")
         df = pd.read_csv(io.StringIO(file_contents))
@@ -28,7 +29,7 @@ def csv_analysis(backend_url):
                         "file": (uploaded_file.name, file_contents, "text/csv")
                     }
                     data = {"text_column": text_column}
-                    
+
                     response = requests.post(f"{backend_url}/csv_analysis/", files=files, data=data)
                     data = response.json()
 
@@ -50,9 +51,9 @@ def csv_analysis(backend_url):
 
                     df_filtered = df_result.drop(columns=["clean_message"], errors="ignore")
                     saved = True
-                    
+
                     st.subheader("Распределение предсказанных меток")
-                    fig1 = px.histogram(df_result, x="label", title="Распределение меток")
+                    fig1 = px.histogram(df_result, x="label")
                     st.plotly_chart(fig1)
 
                     st.subheader("Облако слов для каждого класса")
@@ -64,18 +65,18 @@ def csv_analysis(backend_url):
                     for i, label in enumerate(unique_labels):
                         text = " ".join(df_result[df_result["label"] == label][text_source].astype(str))
                         with cols[i]:
-                            st.subheader(f"{label}")
+                            st.write(f"{label}")
                             if text.strip():
                                 wordcloud = WordCloud(
-                                    width=300, 
-                                    height=200, 
-                                    background_color='white', 
+                                    width=300,
+                                    height=200,
+                                    background_color='white',
                                     colormap='Greens',
-                                    max_font_size=50, 
+                                    max_font_size=50,
                                     random_state=42
                                 ).generate(text)
-                                
-                                fig, ax = plt.subplots(figsize=(3,2))
+
+                                fig, ax = plt.subplots(figsize=(3, 2))
                                 ax.imshow(wordcloud, interpolation="bilinear")
                                 ax.axis("off")
                                 st.pyplot(fig)
