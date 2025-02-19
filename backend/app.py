@@ -17,26 +17,7 @@ app = FastAPI()
 # Блокировка для потокобезопасности модели
 model_lock = threading.Lock()
 
-# Путь к локальной модели (директория, где лежат файлы модели)
-LOCAL_MODEL_PATH = "training_results/checkpoint-102"
-
-
-def load_local_pipeline(model_path: str):
-    """
-    Загружает локальную модель и токенайзер.
-    Здесь в качестве токенайзера используется базовая модель "cointegrated/rubert-tiny2".
-    Если в папке с моделью есть файлы токенайзера, можно изменить параметр на model_path.
-    """
-    model = AutoModelForSequenceClassification.from_pretrained(model_path)
-    # Если токенайзер не сохранён в папке с моделью, можно указать имя базовой модели:
-    tokenizer = AutoTokenizer.from_pretrained("cointegrated/rubert-tiny2")
-    local_pipeline = pipeline(
-        "sentiment-analysis",
-        model=model,
-        tokenizer=tokenizer
-    )
-    return local_pipeline
-
+sentiment_pipeline = pipeline("text-classification", model="ozm-gg/ML_Pandas_AI_LearningLab_2025")
   
 def classify(text):
     def f(x):
@@ -92,17 +73,6 @@ async def preprocess_csv(file: UploadFile = File(...), text_column: str = Form(.
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {e}")
-
-
-# ======== Обновление глобального sentiment_pipeline ========
-def update_sentiment_pipeline(new_model_path: str):
-    global sentiment_pipeline
-    with model_lock:
-        sentiment_pipeline = load_local_pipeline(new_model_path)
-
-
-# ======== Глобальная переменная для статуса обучения ========
-training_progress = {"progress": 0, "status": "not_started"}
 
 
 # ======== Тренировка модели с обновлением прогресса ========
