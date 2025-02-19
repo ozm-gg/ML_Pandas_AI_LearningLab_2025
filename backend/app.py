@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request,  UploadFile, File, BackgroundTasks, Form
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, BackgroundTasks, Form
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from transformers import pipeline, TrainingArguments, Trainer
@@ -7,6 +7,7 @@ import torch
 import threading
 import pandas as pd
 import io
+import time
 
 from utilities.data_preprocessing import DataPreprocessor
 from utilities.HTML_parser import TelegramChatParser
@@ -16,11 +17,27 @@ app = FastAPI()
 # Блокировка для потокобезопасности модели
 model_lock = threading.Lock()
 
-sentiment_pipeline = pipeline(
-    "sentiment-analysis",
-    model="ozm-gg/ML_Pandas_AI_LearningLab_2025"
-)
+# Путь к локальной модели (директория, где лежат файлы модели)
+LOCAL_MODEL_PATH = "training_results/checkpoint-102"
 
+
+def load_local_pipeline(model_path: str):
+    """
+    Загружает локальную модель и токенайзер.
+    Здесь в качестве токенайзера используется базовая модель "cointegrated/rubert-tiny2".
+    Если в папке с моделью есть файлы токенайзера, можно изменить параметр на model_path.
+    """
+    model = AutoModelForSequenceClassification.from_pretrained(model_path)
+    # Если токенайзер не сохранён в папке с моделью, можно указать имя базовой модели:
+    tokenizer = AutoTokenizer.from_pretrained("cointegrated/rubert-tiny2")
+    local_pipeline = pipeline(
+        "sentiment-analysis",
+        model=model,
+        tokenizer=tokenizer
+    )
+    return local_pipeline
+
+  
 def classify(text):
     def f(x):
         if x < -0.01:
@@ -35,10 +52,13 @@ def classify(text):
 class TextRequest(BaseModel):
     text: str
 
+
 class SentimentResponse(BaseModel):
     label: str
     score: float
 
+
+# ======== Анализ тональности текста ========
 @app.post("/analyze_sentiment/", response_model=SentimentResponse)
 async def analyze_sentiment(request: Request, text_request: TextRequest):
     data_preprocessor = DataPreprocessor(text_column="MessageText")
@@ -50,30 +70,42 @@ async def analyze_sentiment(request: Request, text_request: TextRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ======== Предобработка CSV ========
 @app.post("/preprocess_csv/")
 async def preprocess_csv(file: UploadFile = File(...), text_column: str = Form(...)):
     try:
         contents = await file.read()
         df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
 
-        data_preprocessor = DataPreprocessor(text_column=text_column) 
+        data_preprocessor = DataPreprocessor(text_column=text_column)
         cleaned_df = data_preprocessor.preprocess_dataset(df.copy())
 
-        # Конвертируем DataFrame обратно в CSV строку
         output_stream = io.StringIO()
         cleaned_df.to_csv(output_stream, index=False)
         cleaned_csv_string = output_stream.getvalue()
 
-        # Возвращаем CSV файл как StreamingResponse
         return StreamingResponse(
             io.StringIO(cleaned_csv_string),
             media_type="text/csv",
             headers={"Content-Disposition": "attachment;filename=cleaned_data.csv"}
         )
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {e}")
-    
+
+
+# ======== Обновление глобального sentiment_pipeline ========
+def update_sentiment_pipeline(new_model_path: str):
+    global sentiment_pipeline
+    with model_lock:
+        sentiment_pipeline = load_local_pipeline(new_model_path)
+
+
+# ======== Глобальная переменная для статуса обучения ========
+training_progress = {"progress": 0, "status": "not_started"}
+
+
+# ======== Тренировка модели с обновлением прогресса ========
 def train_model(data):
     try:
         model = sentiment_pipeline.model
@@ -134,22 +166,30 @@ def train_model(data):
     except Exception as e:
         raise RuntimeError(f"Ошибка обучения: {str(e)}")
 
+
+# ======== Эндпоинты для обучения и статуса ========
 @app.post("/train/")
 async def training(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    global training_progress
     try:
         contents = await file.read()
-        df = pd.read_csv(io.StringIO(contents.decode('utf-8'))) \
+        df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
 
-        data_preprocessor = DataPreprocessor(text_column="MessageText") 
-        cleaned_df = data_preprocessor.preprocess_dataset(df.copy()) 
+        training_progress = {"progress": 0, "status": "starting"}
+        background_tasks.add_task(train_model, df)
 
-        background_tasks.add_task(train_model, cleaned_df)
-        return {"message": "Дообучение начато."}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
+        return {"message": "Обучение началось!"}
+    except Exception as e:
+        training_progress["status"] = "failed"
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/train_status/")
+async def get_training_status():
+    return training_progress
+
+
+# ======== Анализ чатов (Telegram) ========
 @app.post("/chat_analysis/")
 async def chat_analysis(file: UploadFile = File(...)):
     try:
@@ -170,18 +210,19 @@ async def chat_analysis(file: UploadFile = File(...)):
         df["score"] = [pred.get("score") for pred in predictions]
 
         return df.to_dict(orient="records")
-
     except Exception as e:
         print("Ошибка:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
-    
+
+
+# ======== Анализ CSV ========
 @app.post("/csv_analysis/")
 async def csv_analysis(file: UploadFile = File(...), text_column: str = Form(...)):
     try:
         contents = await file.read()
         df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
 
-        data_preprocessor = DataPreprocessor(text_column=text_column) 
+        data_preprocessor = DataPreprocessor(text_column=text_column)
         cleaned_df = data_preprocessor.preprocess_dataset(df.copy())
 
         with model_lock:
@@ -192,11 +233,12 @@ async def csv_analysis(file: UploadFile = File(...), text_column: str = Form(...
         df["clean_message"] = cleaned_df[text_column]
 
         return df.to_dict(orient="records")
-
     except Exception as e:
         print("Ошибка:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
-    
+
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="127.0.0.1", port=8000)

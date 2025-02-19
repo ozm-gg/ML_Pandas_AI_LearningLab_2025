@@ -4,6 +4,7 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from natasha import NamesExtractor, MorphVocab
 
+
 class DataPreprocessor:
     def __init__(self, text_column='MessageText'):
         self.text_column = text_column
@@ -53,19 +54,19 @@ class DataPreprocessor:
             extractor = NamesExtractor(MorphVocab())
             matches = extractor(text)
             spans = []
-            
+
             for match in matches:
                 fact = match.fact
-                if fact.first or fact.middle:  
+                if fact.first or fact.middle:
                     spans.append((match.start, match.stop))
-            
+
             cleaned_text = []
             last_end = 0
             for start, end in sorted(spans):
                 cleaned_text.append(text[last_end:start])
                 last_end = end
             cleaned_text.append(text[last_end:])
-            
+
             return ''.join(cleaned_text)
         except Exception as e:
             print(f"Error in remove_names_natasha with text: {text}\n{e}")
