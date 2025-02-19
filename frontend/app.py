@@ -7,7 +7,9 @@ from homepage import show_homepage
 from utilities import sentiment_analysis, data_preprocessing, training, chat_analysis, csv_analysis
 
 def show_functional_page():
-    st.title("SentimentPanda – Анализ тональности текста и многое другое")
+    st.title("Анализ тональности текстовых данных")
+    st.write(
+        "Добро пожаловать, выберите один из предложенных режимов и начните свою работу")
 
     with open("SentimentPanda.png", "rb") as image_file:
         encoded_string = base64.b64encode(image_file.read()).decode()
@@ -15,14 +17,20 @@ def show_functional_page():
     with st.sidebar:
         st.markdown(
             f"""
-            <a href="?page=home" target="_self">
-                <img src="data:image/png;base64,{encoded_string}" style="max-width: 50%; height: auto;" />
+            <a href="?page=home" target="_self" style="
+                display: flex; 
+                align-items: center; 
+                width: 100%; 
+                padding: 20px 0;
+                text-decoration: none;
+                background-color: transparent;">
+                <img src="data:image/png;base64,{encoded_string}" style="width: 50px; height: auto; margin-right: 15px;" />
+                <span style="font-size: 24px; font-weight: bold; color: white;">SentimentPanda</span>
             </a>
             """,
             unsafe_allow_html=True
         )
-    st.sidebar.markdown("Нажмите на иконку для перехода на начальную страницу")
-    st.sidebar.header("Режим работы")
+
     app_mode = st.sidebar.radio(
         "Выберите режим:",
         [
@@ -68,7 +76,9 @@ def main():
     """, unsafe_allow_html=True)
 
     global BACKEND_URL
-    BACKEND_URL = os.environ.get("BACKEND_URL", " https://4cae-77-238-242-109.ngrok-free.app")
+
+    BACKEND_URL = os.environ.get("BACKEND_URL")
+
 
     # Чтение query-параметров с использованием нового API (без круглых скобок)
     query_params = st.query_params
