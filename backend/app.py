@@ -1,14 +1,9 @@
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, BackgroundTasks, Form
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
-from transformers import (
-    pipeline,
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
-    TrainingArguments,
-    Trainer
-)
-from datasets import Dataset
+from transformers import pipeline, TrainingArguments, Trainer
+from torch.utils.data import Dataset
+import torch
 import threading
 import pandas as pd
 import io
@@ -22,32 +17,19 @@ app = FastAPI()
 # Блокировка для потокобезопасности модели
 model_lock = threading.Lock()
 
-# Путь к локальной модели (директория, где лежат файлы модели)
-LOCAL_MODEL_PATH = "training_results/checkpoint-102"
+sentiment_pipeline = pipeline("text-classification", model="ozm-gg/ML_Pandas_AI_LearningLab_2025")
+  
+def classify(text):
+    def f(x):
+        if x < -0.01:
+            return "Negative"
+        elif x > 0.10:
+            return "Positive"
+        else:
+            return "Neutral"
+    res = sentiment_pipeline(text)
+    return {"label" : f(res[0]['score']), "score" : res[0]['score']}
 
-
-def load_local_pipeline(model_path: str):
-    """
-    Загружает локальную модель и токенайзер.
-    Здесь в качестве токенайзера используется базовая модель "cointegrated/rubert-tiny2".
-    Если в папке с моделью есть файлы токенайзера, можно изменить параметр на model_path.
-    """
-    model = AutoModelForSequenceClassification.from_pretrained(model_path)
-    # Если токенайзер не сохранён в папке с моделью, можно указать имя базовой модели:
-    tokenizer = AutoTokenizer.from_pretrained("cointegrated/rubert-tiny2")
-    local_pipeline = pipeline(
-        "sentiment-analysis",
-        model=model,
-        tokenizer=tokenizer
-    )
-    return local_pipeline
-
-
-# Глобальная переменная для пайплайна
-sentiment_pipeline = load_local_pipeline(LOCAL_MODEL_PATH)
-
-
-# ======== Схемы данных (Pydantic) ========
 class TextRequest(BaseModel):
     text: str
 
@@ -63,8 +45,8 @@ async def analyze_sentiment(request: Request, text_request: TextRequest):
     data_preprocessor = DataPreprocessor(text_column="MessageText")
     cleaned_text = data_preprocessor.preprocess_text(text_request.text)
     try:
-        with model_lock:
-            result = sentiment_pipeline(cleaned_text)[0]
+        with model_lock:  # Блокировка для потокобезопасности модели
+            result = classify(cleaned_text)
             return {"label": result["label"], "score": result["score"]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -93,81 +75,66 @@ async def preprocess_csv(file: UploadFile = File(...), text_column: str = Form(.
         raise HTTPException(status_code=500, detail=f"Error processing file: {e}")
 
 
-# ======== Обновление глобального sentiment_pipeline ========
-def update_sentiment_pipeline(new_model_path: str):
-    global sentiment_pipeline
-    with model_lock:
-        sentiment_pipeline = load_local_pipeline(new_model_path)
-
-
-# ======== Глобальная переменная для статуса обучения ========
-training_progress = {"progress": 0, "status": "not_started"}
-
-
 # ======== Тренировка модели с обновлением прогресса ========
-def train_model(data: pd.DataFrame):
-    global training_progress
-    training_progress = {"progress": 0, "status": "in_progress"}
-
-    # Получаем текущую модель и токенайзер
-    with model_lock:
+def train_model(data):
+    try:
         model = sentiment_pipeline.model
         tokenizer = sentiment_pipeline.tokenizer
 
-    # Преобразуем DataFrame в Dataset
-    dataset = Dataset.from_pandas(data)
+        data["score"] = data["Class"].map({'N': 0, "G": 1, "B": -1})
+        
+        class SentimentDataset(Dataset):
+            def __init__(self, texts, labels, tokenizer, max_length=512):
+                self.texts = texts
+                self.labels = labels
+                self.tokenizer = tokenizer
+                self.max_length = max_length
 
-    def tokenize_function(examples):
-        tokenized = tokenizer(
-            [str(text) for text in examples["MessageText"]],
-            padding="max_length",
-            truncation=True,
-            max_length=256,
+            def __len__(self):
+                return len(self.texts)
+
+            def __getitem__(self, idx):
+                text = self.texts[idx]
+                label = self.labels[idx]
+                encoding = self.tokenizer(
+                    text,
+                    padding="max_length",
+                    truncation=True,
+                    max_length=self.max_length,
+                    return_tensors="pt"
+                )
+                return {
+                    "input_ids": encoding["input_ids"].squeeze(),
+                    "attention_mask": encoding["attention_mask"].squeeze(),
+                    "labels": torch.tensor(label, dtype=torch.float32)
+                }
+                
+        train_dataset = SentimentDataset(
+            texts=data["MessageText"].tolist(),
+            labels=data["score"].tolist(),
+            tokenizer=tokenizer
         )
-        label_dict = {"G": 1, "N": 0, "B": 2}
-        tokenized["labels"] = [label_dict[label] for label in examples["Class"]]
-        return tokenized
 
-    tokenized_dataset = dataset.map(tokenize_function, batched=True)
-    training_args = TrainingArguments(
-        output_dir="./training_results",  # Общая папка для чекпоинтов
-        learning_rate=3e-6,
-        num_train_epochs=3,
-        per_device_train_batch_size=1,
-        overwrite_output_dir=True,
-    )
+        training_args = TrainingArguments(
+            output_dir="./training_results",
+            learning_rate=3e-6,  
+            num_train_epochs=3,
+            per_device_train_batch_size=3,
+        )
 
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=tokenized_dataset,
-    )
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+        )
 
-    # Запускаем реальное обучение в отдельном потоке
-    training_finished = threading.Event()
-
-    def run_training():
         trainer.train()
-        training_finished.set()
 
-    training_thread = threading.Thread(target=run_training)
-    training_thread.start()
+        with model_lock:
+            sentiment_pipeline.model = model
 
-    # Параллельно обновляем training_progress (симуляция прогресса на основе времени)
-    estimated_duration = 50  # Ожидаемое время обучения в секундах (примерно)
-    start_time = time.time()
-    while not training_finished.is_set():
-        elapsed = time.time() - start_time
-        progress = min(100, int((elapsed / estimated_duration) * 100))
-        training_progress["progress"] = progress
-        time.sleep(1)
-
-    training_thread.join()  # Убедимся, что обучение завершилось
-    training_progress["progress"] = 100
-    training_progress["status"] = "completed"
-
-    # Обновляем глобальный pipeline новой моделью из LOCAL_MODEL_PATH
-    update_sentiment_pipeline(LOCAL_MODEL_PATH)
+    except Exception as e:
+        raise RuntimeError(f"Ошибка обучения: {str(e)}")
 
 
 # ======== Эндпоинты для обучения и статуса ========
@@ -207,7 +174,7 @@ async def chat_analysis(file: UploadFile = File(...)):
         cleaned_df = data_preprocessor.preprocess_dataset(df.copy())
 
         with model_lock:
-            predictions = sentiment_pipeline(list(cleaned_df["Message"]))
+            predictions = list(cleaned_df["Message"].map(classify))
 
         df["label"] = [pred.get("label") for pred in predictions]
         df["score"] = [pred.get("score") for pred in predictions]
@@ -229,7 +196,7 @@ async def csv_analysis(file: UploadFile = File(...), text_column: str = Form(...
         cleaned_df = data_preprocessor.preprocess_dataset(df.copy())
 
         with model_lock:
-            predictions = sentiment_pipeline(list(cleaned_df[text_column]))
+            predictions = list(cleaned_df[text_column].map(classify))
 
         df["label"] = [pred.get("label") for pred in predictions]
         df["score"] = [pred.get("score") for pred in predictions]

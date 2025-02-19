@@ -45,9 +45,7 @@ def sentiment_analysis_ui(backend_url):
                     col1, col2 = st.columns([2, 1])
                     with col1:
                         st.write("**Тональность:**", sentiment)
-                        st.write("**Уверенность:**", f"{score * 100:.2f}%")
-                    with col2:
-                        st.progress(int(score * 100))
+                        st.write("**Позитивность:**", f"{score:.2f}")
                     st.markdown("#### Исходный текст")
                     st.info(input_text)
 
@@ -84,13 +82,6 @@ def sentiment_analysis_ui(backend_url):
 
         if demo_results:
             df_demo = pd.DataFrame(demo_results)
-
-            mapping = {
-                "LABEL_0": "Neutral",
-                "LABEL_1": "Positive",
-                "LABEL_2": "Negative"
-            }
-            df_demo["label"] = df_demo["label"].map(mapping).fillna(df_demo["label"])
 
             st.markdown("### Анализ демо-текстов")
             st.dataframe(df_demo)
