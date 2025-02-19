@@ -68,7 +68,7 @@ def main():
     """, unsafe_allow_html=True)
 
     global BACKEND_URL
-    BACKEND_URL = os.environ.get("BACKEND_URL", "https://4945-77-238-242-109.ngrok-free.app")
+    BACKEND_URL = os.environ.get("BACKEND_URL", " https://4cae-77-238-242-109.ngrok-free.app")
 
     # Чтение query-параметров с использованием нового API (без круглых скобок)
     query_params = st.query_params
