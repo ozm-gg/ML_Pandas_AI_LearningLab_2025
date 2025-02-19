@@ -61,7 +61,7 @@ st.markdown("""
 """,  unsafe_allow_html=True)
 
 # URL бэкенда через ngrok (или локальный URL для тестов)
-BACKEND_URL = os.environ.get("BACKEND_URL", 'https://045a-193-239-160-82.ngrok-free.app') # URL по умолчанию и из переменной окружения
+BACKEND_URL = os.environ.get("BACKEND_URL", 'https://ef17-193-239-160-82.ngrok-free.app') # URL по умолчанию и из переменной окружения
 
 st.title("Анализ Тональности Текста")
 st.write(

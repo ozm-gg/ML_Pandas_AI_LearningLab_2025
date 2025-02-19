@@ -2,7 +2,8 @@ from fastapi import FastAPI, HTTPException, Request,  UploadFile, File, Backgrou
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from transformers import pipeline, TrainingArguments, Trainer
-from datasets import Dataset
+from torch.utils.data import Dataset
+import torch
 import threading
 import pandas as pd
 import io
@@ -20,6 +21,17 @@ sentiment_pipeline = pipeline(
     model="ozm-gg/ML_Pandas_AI_LearningLab_2025"
 )
 
+def classify(text):
+    def f(x):
+        if x < -0.01:
+            return "Negative"
+        elif x > 0.10:
+            return "Positive"
+        else:
+            return "Neutral"
+    res = sentiment_pipeline(text)
+    return {"label" : f(res[0]['score']), "score" : res[0]['score']}
+
 class TextRequest(BaseModel):
     text: str
 
@@ -33,7 +45,7 @@ async def analyze_sentiment(request: Request, text_request: TextRequest):
     cleaned_text = data_preprocessor.preprocess_text(text_request.text)
     try:
         with model_lock:  # Блокировка для потокобезопасности модели
-            result = sentiment_pipeline(cleaned_text)[0]
+            result = classify(cleaned_text)
             return {"label": result["label"], "score": result["score"]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -67,37 +79,51 @@ def train_model(data):
         model = sentiment_pipeline.model
         tokenizer = sentiment_pipeline.tokenizer
 
-        dataset = Dataset.from_pandas(data)
+        data["score"] = data["Class"].map({'N': 0, "G": 1, "B": -1})
         
-        def tokenize_function(examples):
-            tokenized = tokenizer(
-                [str(text) for text in examples["MessageText"]],
-                padding="max_length",
-                truncation=True,
-                max_length=256,
-            )
+        class SentimentDataset(Dataset):
+            def __init__(self, texts, labels, tokenizer, max_length=512):
+                self.texts = texts
+                self.labels = labels
+                self.tokenizer = tokenizer
+                self.max_length = max_length
 
-            label_dict = {
-                "G" : 1,
-                "N" : 0,
-                "B" : 2
-            }
-            tokenized["labels"] = [label_dict[label] for label in examples["Class"]]
-    
-            return tokenized
-        
-        tokenized_dataset = dataset.map(tokenize_function, batched=True)
+            def __len__(self):
+                return len(self.texts)
+
+            def __getitem__(self, idx):
+                text = self.texts[idx]
+                label = self.labels[idx]
+                encoding = self.tokenizer(
+                    text,
+                    padding="max_length",
+                    truncation=True,
+                    max_length=self.max_length,
+                    return_tensors="pt"
+                )
+                return {
+                    "input_ids": encoding["input_ids"].squeeze(),
+                    "attention_mask": encoding["attention_mask"].squeeze(),
+                    "labels": torch.tensor(label, dtype=torch.float32)
+                }
+                
+        train_dataset = SentimentDataset(
+            texts=data["MessageText"].tolist(),
+            labels=data["score"].tolist(),
+            tokenizer=tokenizer
+        )
+
         training_args = TrainingArguments(
             output_dir="./training_results",
             learning_rate=3e-6,  
             num_train_epochs=3,
-            per_device_train_batch_size=1,
+            per_device_train_batch_size=3,
         )
 
         trainer = Trainer(
             model=model,
             args=training_args,
-            train_dataset=tokenized_dataset,
+            train_dataset=train_dataset,
         )
 
         trainer.train()
@@ -138,7 +164,7 @@ async def chat_analysis(file: UploadFile = File(...)):
         cleaned_df = data_preprocessor.preprocess_dataset(df.copy())
 
         with model_lock:
-            predictions = sentiment_pipeline(list(cleaned_df["Message"]))
+            predictions = list(cleaned_df["Message"].map(classify))
 
         df["label"] = [pred.get("label") for pred in predictions]
         df["score"] = [pred.get("score") for pred in predictions]
@@ -159,7 +185,7 @@ async def csv_analysis(file: UploadFile = File(...), text_column: str = Form(...
         cleaned_df = data_preprocessor.preprocess_dataset(df.copy())
 
         with model_lock:
-            predictions = sentiment_pipeline(list(cleaned_df[text_column]))
+            predictions = list(cleaned_df[text_column].map(classify))
 
         df["label"] = [pred.get("label") for pred in predictions]
         df["score"] = [pred.get("score") for pred in predictions]
